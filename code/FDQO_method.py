@@ -127,8 +127,8 @@ class DQNAgent(AbstractDQNAgent):
         self.multiset = Multiset()
         ##
         self.reward_queue = Queue(maxsize = self.reward_capacity)
-        self.epsilon = 0.1
-        self.k = 0.23
+        self.epsilon = 0.12
+        self.k = 0.05
         self.threshold = 0.85
         # self.reward_queue2 = Queue(maxsize = 10000)
         # self.sumreward2 = 0
@@ -283,21 +283,7 @@ class DQNAgent(AbstractDQNAgent):
     #             self.files.write("1\n")
     #     else:
     #         action = self.test_policy.select_action(q_values=q_values)
-        # if self.estimate_reward(action, observation) > self.threshold:
-        #     self.files.write("1\n") #good
-        # else:
-        #     self.files.write("0\n") #bad  
 
-              
-        # self.files_task_decide.write(str(action) + "\n")
-
-        # time_delay = 0
-        # if action>0 and action<4:
-        #     Rate_trans_req_data = (10*np.log2(1+46/(np.power(observation[(action-1)*3],4)*100))) / 8
-        #     time_delay =  observation[11]/(1000*observation[2+(action-1)*3]) + max(observation[12]/(Rate_trans_req_data*1000),observation[1+(action-1)*3])
-        # if action == 0 :
-        #     time_delay = observation[11]/(observation[10]*1000)
-        # self.files_delay.write(str(time_delay) + "\n")
     #     # Book-keeping.
     #     self.recent_observation = observation
     #     self.recent_action = action
@@ -306,41 +292,96 @@ class DQNAgent(AbstractDQNAgent):
     
     
     # Db_FDQO forward
-    def forward(self, observation, step = 0, baseline = 0.8, eps = 0.0, r = 0):
+    # def forward(self, observation, step = 0, baseline = 0.2, eps = 0.0, r = 0):
+    #     # Select an action.
+        
+    #     state = self.memory.get_recent_state(observation)
+    #     q_values = self.compute_q_values(state)            
+    #     if self.reward_capacity == 0:
+    #         self.sumreward += r
+    #         try:
+    #             self.average_reward = self.sumreward / self.t
+    #         except:
+    #             pass
+    #         self.t += 1
+    #     else:
+    #         #print(self.sumreward, self.reward_queue.qsize(), self.t)
+    #         if self.reward_queue.full():
+    #             self.sumreward -= self.reward_queue.get()
+    #         self.reward_queue.put(r)
+    #         self.sumreward += r
+    #         try:
+    #             self.average_reward = self.sumreward / self.t
+    #         except:
+    #             pass
+    #         if (self.t < self.reward_capacity):
+    #             self.t += 1
+        
+    #     if self.average_reward > baseline: # line 8-12
+    #         epsilon = min(self.epsilon - self.k * (self.average_reward - baseline), self.epsilon)
+    #         epsilon = max(epsilon, 0.01)
+    #         if np.random.uniform() < epsilon:
+    #             action = np.random.randint(0, 4)
+    #             ext = False
+    #         else:
+    #             ext = True
+    #             action = np.argmax(q_values)
+    #     else: # algo 2
+    #         action = self.policy.select_action(q_values=q_values)
+
+    #         if self.estimate_reward(action, observation) > self.threshold:
+    #             action = action
+    #             ext = True
+    #         else:
+    #             action = self.fuzzy_logic.choose_action(observation)
+    #             ext = False
+
+    #     if ext:
+    #         self.files.write("0\n")
+    #     else:
+    #         self.files.write("1\n")        
+    
+    #     # Book-keeping.
+    #     self.recent_observation = observation
+    #     self.recent_action = action
+
+    #     return action
+    
+    
+    
+    # Hieu algo - DbpFDQO
+    def forward(self, observation, step = 0, baseline = 0.2, eps = 0.0, r = 0):
         # Select an action.
         
         state = self.memory.get_recent_state(observation)
         q_values = self.compute_q_values(state)            
-        if self.reward_capacity == 0:
-            self.sumreward += r
-            try:
-                self.average_reward = self.sumreward / self.t
-            except:
-                pass
+        
+        if self.reward_queue.full():
+            self.multiset.remove(self.reward_queue.get())
+        self.reward_queue.put(r)
+        self.multiset.insert(r)
+        if (self.t < self.reward_capacity_needed):
             self.t += 1
-        else:
-            #print(self.sumreward, self.reward_queue.qsize(), self.t)
-            if self.reward_queue.full():
-                self.sumreward -= self.reward_queue.get()
-            self.reward_queue.put(r)
-            self.sumreward += r
-            try:
-                self.average_reward = self.sumreward / self.t
-            except:
-                pass
-            if (self.t < self.reward_capacity):
-                self.t += 1
+        try:
+            self.average_reward = self.multiset.sum_of_largest(self.reward_queue.__sizeof__) / self.reward_queue.__sizeof__
+            self.average_reward2 = self.multiset.sum_of_largest(self.t) / self.t
+        except:
+            pass
         
         if self.average_reward > baseline: # line 8-12
-            epsilon = min(self.epsilon - self.k * (self.average_reward - 0.55), self.epsilon)
+            epsilon = min(self.epsilon - self.k * (self.average_reward2 - baseline), self.epsilon)
             epsilon = max(epsilon, 0.01)
             if np.random.uniform() < epsilon:
                 action = np.random.randint(0, 4)
             else:
                 action = np.argmax(q_values)
+            self.epsilon = epsilon
         else: # algo 2
-            action = self.policy.select_action(q_values=q_values)
-
+            if np.random.uniform() < self.epsilon:
+                action = np.random.randint(0, 4)
+            else:
+                action = np.argmax(q_values)
+            
             if self.estimate_reward(action, observation) > self.threshold:
                 action = action
             else:
@@ -360,75 +401,13 @@ class DQNAgent(AbstractDQNAgent):
             time_delay =  observation[11]/(1000*observation[2+(action-1)*3]) + max(observation[12]/(Rate_trans_req_data*1000),observation[1+(action-1)*3])
         if action == 0 :
             time_delay = observation[11]/(observation[10]*1000)
-        self.files_delay.write(str(time_delay) + "\n")  
-    
+        self.files_delay.write(str(time_delay) + "\n")
+
         # Book-keeping.
         self.recent_observation = observation
         self.recent_action = action
 
         return action
-    
-    
-    
-    # Hieu algo - DbpFDQO
-    # def forward(self, observation, step = 0, baseline = 0.8, eps = 0.0, r = 0):
-    #     # Select an action.
-        
-    #     state = self.memory.get_recent_state(observation)
-    #     q_values = self.compute_q_values(state)            
-        
-    #     if self.reward_queue.full():
-    #         self.multiset.remove(self.reward_queue.get())
-    #     self.reward_queue.put(r)
-    #     self.multiset.insert(r)
-    #     if (self.t < self.reward_capacity_needed):
-    #         self.t += 1
-    #     try:
-    #         self.average_reward = self.multiset.sum_of_largest(self.reward_queue.__sizeof__) / self.reward_queue.__sizeof__
-    #         self.average_reward2 = self.multiset.sum_of_largest(self.t) / self.t
-    #     except:
-    #         pass
-        
-    #     if self.average_reward > baseline: # line 8-12
-    #         epsilon = min(self.epsilon - self.k * (self.average_reward2 - 0.55), self.epsilon)
-    #         epsilon = max(epsilon, 0.01)
-    #         if np.random.uniform() < epsilon:
-    #             action = np.random.randint(0, 4)
-    #         else:
-    #             action = np.argmax(q_values)
-    #         self.epsilon = epsilon
-    #     else: # algo 2
-    #         if np.random.uniform() < self.epsilon:
-    #             action = np.random.randint(0, 4)
-    #         else:
-    #             action = np.argmax(q_values)
-            
-    #         if self.estimate_reward(action, observation) > self.threshold:
-    #             action = action
-    #         else:
-    #             action = self.fuzzy_logic.choose_action(observation)
-
-    #     if self.estimate_reward(action, observation) > self.threshold:
-    #         self.files.write("1\n") #good
-    #     else:
-    #         self.files.write("0\n") #bad  
-
-              
-    #     self.files_task_decide.write(str(action) + "\n")
-
-    #     time_delay = 0
-    #     if action>0 and action<4:
-    #         Rate_trans_req_data = (10*np.log2(1+46/(np.power(observation[(action-1)*3],4)*100))) / 8
-    #         time_delay =  observation[11]/(1000*observation[2+(action-1)*3]) + max(observation[12]/(Rate_trans_req_data*1000),observation[1+(action-1)*3])
-    #     if action == 0 :
-    #         time_delay = observation[11]/(observation[10]*1000)
-    #     self.files_delay.write(str(time_delay) + "\n")
-
-    #     # Book-keeping.
-    #     self.recent_observation = observation
-    #     self.recent_action = action
-
-    #     return action
 
     def backward(self, reward, terminal):
         # Store most recent experience in memory.
